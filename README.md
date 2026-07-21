@@ -10,6 +10,7 @@
 - 可從系統字型清單切換字型
 - 可開關粗體，並調整字體大小與透明度
 - 可選擇高亮底色與文字顏色
+- 可啟用走馬燈模式，並調整速度與寬度
 - 按 `Esc` 或關閉控制台即可結束
 - 不需要安裝第三方套件，使用 Python 標準庫 `tkinter`
 
@@ -36,20 +37,22 @@ python screen_highlight_text.py
 4. 調整透明度
 5. 更換高亮底色
 6. 更換文字顏色
+7. 走馬燈模式（可調速度與寬度）
 
 操作步驟：
 
 1. 在控制台輸入要顯示的文字。
 2. 拖曳螢幕上的高亮文字到需要的位置。
 3. 使用控制台即時調整字型、大小、透明度與顏色。
-4. 按 `Esc` 或關閉控制台結束程式。
+4. 勾選「啟用走馬燈」讓文字在高亮條內向左捲動。
+5. 按 `Esc` 或關閉控制台結束程式。
 
 ## 啟動參數
 
-也可以在啟動時指定文字、字型、大小、顏色、透明度與位置：
+也可以在啟動時指定文字、字型、大小、顏色、透明度、走馬燈與位置：
 
 ```powershell
-python screen_highlight_text.py --text "重要提醒" --font "Microsoft JhengHei UI" --font-size 48 --highlight-color "#fff176" --text-color "#111111" --opacity 0.85 --x 200 --y 150
+python screen_highlight_text.py --text "重要提醒：請注意螢幕高亮內容" --font "Microsoft JhengHei UI" --font-size 48 --marquee --marquee-speed 6 --marquee-width 900
 ```
 
 可用參數：
@@ -63,6 +66,9 @@ python screen_highlight_text.py --text "重要提醒" --font "Microsoft JhengHei
 | `--highlight-color` | 高亮底色，例如 `#fff176` | `#fff176` |
 | `--text-color` | 文字顏色，例如 `#111111` | `#111111` |
 | `--opacity` | 透明度，範圍 0.2 到 1.0 | `0.85` |
+| `--marquee` | 啟動時啟用走馬燈模式 | 關閉 |
+| `--marquee-speed` | 走馬燈速度，範圍 1 到 20 | `4` |
+| `--marquee-width` | 走馬燈高亮條寬度，範圍 200 到 2400 | `720` |
 | `--x` | 初始 X 座標 | `120` |
 | `--y` | 初始 Y 座標 | `120` |
 

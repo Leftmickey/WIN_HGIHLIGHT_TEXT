@@ -18,6 +18,9 @@ DEFAULT_TEXT = "重點提示文字"
 DEFAULT_FONT = "Microsoft JhengHei UI"
 DEFAULT_HIGHLIGHT = "#fff176"
 DEFAULT_TEXT_COLOR = "#111111"
+DEFAULT_MARQUEE_WIDTH = 720
+DEFAULT_MARQUEE_SPEED = 4
+MARQUEE_TICK_MS = 30
 
 # Common Windows fonts shown first when available.
 PREFERRED_FONTS = (
@@ -111,6 +114,9 @@ class HighlightOverlay:
         opacity: float,
         x: int,
         y: int,
+        marquee: bool = False,
+        marquee_speed: int = DEFAULT_MARQUEE_SPEED,
+        marquee_width: int = DEFAULT_MARQUEE_WIDTH,
     ) -> None:
         self.root = root
         self.window = tk.Toplevel(root)
@@ -124,20 +130,32 @@ class HighlightOverlay:
         if platform.system() == "Windows":
             self.window.configure(bg=TRANSPARENT_COLOR)
             self.window.attributes("-transparentcolor", TRANSPARENT_COLOR)
+        else:
+            self.window.configure(bg=highlight_color)
 
-        self.text_var = tk.StringVar(value=text)
+        self.source_text = text or " "
         self.font_family = font_family
         self.font_size = font_size
         self.bold = bold
         self.opacity = opacity
         self.highlight_color = highlight_color
         self.text_color = text_color
+        self.marquee_enabled = marquee
+        self.marquee_speed = max(1, min(20, marquee_speed))
+        self.marquee_width = max(200, min(2400, marquee_width))
         self.drag_start_x = 0
         self.drag_start_y = 0
+        self._marquee_job: str | None = None
+        self._text_x = 0.0
+        self._text_width = 0
+        self._content_height = 0
+
+        self.content = tk.Frame(self.window, bg=self.highlight_color, bd=0)
+        self.content.pack()
 
         self.label = tk.Label(
-            self.window,
-            textvariable=self.text_var,
+            self.content,
+            text=self.source_text,
             bg=self.highlight_color,
             fg=self.text_color,
             font=self._font_tuple(),
@@ -146,37 +164,112 @@ class HighlightOverlay:
             bd=0,
             relief="flat",
         )
-        self.label.pack()
-        self.label.bind("<ButtonPress-1>", self._start_drag)
-        self.label.bind("<B1-Motion>", self._drag)
+        self.canvas = tk.Canvas(
+            self.content,
+            bg=self.highlight_color,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.text_id: int | None = None
+
+        for widget in (self.window, self.content, self.label, self.canvas):
+            widget.bind("<ButtonPress-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag)
 
         self.window.geometry(f"+{x}+{y}")
         self.window.bind("<Escape>", lambda _event: self.root.quit())
+        self.window.bind("<Destroy>", self._on_destroy)
+
+        self._rebuild_view(reset_position=True)
 
     def _font_tuple(self) -> tuple[str, int] | tuple[str, int, str]:
         if self.bold:
             return (self.font_family, self.font_size, "bold")
         return (self.font_family, self.font_size)
 
-    def _apply_font(self) -> None:
-        self.label.configure(font=self._font_tuple())
+    def _measure_text(self) -> tuple[int, int]:
+        font = tkfont.Font(font=self._font_tuple())
+        width = max(font.measure(self.source_text), 1)
+        height = max(font.metrics("linespace"), self.font_size) + 24
+        return width, height
+
+    def _stop_marquee(self) -> None:
+        if self._marquee_job is not None:
+            try:
+                self.window.after_cancel(self._marquee_job)
+            except tk.TclError:
+                pass
+            self._marquee_job = None
+
+    def _on_destroy(self, _event: tk.Event | None = None) -> None:
+        self._stop_marquee()
+
+    def _rebuild_view(self, reset_position: bool = False) -> None:
+        self._stop_marquee()
+        self.label.pack_forget()
+        self.canvas.pack_forget()
+
+        text_width, content_height = self._measure_text()
+        self._text_width = text_width
+        self._content_height = content_height
+
+        if self.marquee_enabled:
+            self.canvas.configure(
+                width=self.marquee_width,
+                height=content_height,
+                bg=self.highlight_color,
+            )
+            self.canvas.delete("all")
+            if reset_position or self._text_x == 0:
+                self._text_x = float(self.marquee_width)
+            self.text_id = self.canvas.create_text(
+                self._text_x,
+                content_height / 2,
+                text=self.source_text,
+                anchor="w",
+                fill=self.text_color,
+                font=self._font_tuple(),
+            )
+            self.canvas.pack()
+            self._tick_marquee()
+        else:
+            self.label.configure(
+                text=self.source_text,
+                bg=self.highlight_color,
+                fg=self.text_color,
+                font=self._font_tuple(),
+            )
+            self.label.pack()
+
+        self.content.configure(bg=self.highlight_color)
         self.window.update_idletasks()
 
+    def _tick_marquee(self) -> None:
+        if not self.marquee_enabled or self.text_id is None:
+            return
+
+        self._text_x -= self.marquee_speed
+        if self._text_x + self._text_width < 0:
+            self._text_x = float(self.marquee_width)
+
+        self.canvas.coords(self.text_id, self._text_x, self._content_height / 2)
+        self._marquee_job = self.window.after(MARQUEE_TICK_MS, self._tick_marquee)
+
     def set_text(self, value: str) -> None:
-        self.text_var.set(value or " ")
-        self.window.update_idletasks()
+        self.source_text = value or " "
+        self._rebuild_view(reset_position=False)
 
     def set_font_family(self, value: str) -> None:
         self.font_family = value
-        self._apply_font()
+        self._rebuild_view(reset_position=False)
 
     def set_font_size(self, value: int) -> None:
         self.font_size = value
-        self._apply_font()
+        self._rebuild_view(reset_position=False)
 
     def set_bold(self, value: bool) -> None:
         self.bold = value
-        self._apply_font()
+        self._rebuild_view(reset_position=False)
 
     def set_opacity(self, value: float) -> None:
         self.opacity = value
@@ -184,26 +277,47 @@ class HighlightOverlay:
 
     def set_highlight_color(self, value: str) -> None:
         self.highlight_color = value
+        self.content.configure(bg=value)
         self.label.configure(bg=value)
+        self.canvas.configure(bg=value)
 
     def set_text_color(self, value: str) -> None:
         self.text_color = value
         self.label.configure(fg=value)
+        if self.text_id is not None:
+            self.canvas.itemconfigure(self.text_id, fill=value)
+
+    def set_marquee_enabled(self, enabled: bool) -> None:
+        if self.marquee_enabled == enabled:
+            return
+        self.marquee_enabled = enabled
+        self._rebuild_view(reset_position=True)
+
+    def set_marquee_speed(self, speed: int) -> None:
+        self.marquee_speed = max(1, min(20, speed))
+
+    def set_marquee_width(self, width: int) -> None:
+        self.marquee_width = max(200, min(2400, width))
+        if self.marquee_enabled:
+            self._rebuild_view(reset_position=False)
 
     def toggle_visibility(self, visible: bool) -> None:
         if visible:
             self.window.deiconify()
             self.window.attributes("-topmost", True)
+            if self.marquee_enabled and self._marquee_job is None:
+                self._tick_marquee()
         else:
+            self._stop_marquee()
             self.window.withdraw()
 
     def _start_drag(self, event: tk.Event) -> None:
-        self.drag_start_x = event.x
-        self.drag_start_y = event.y
+        self.drag_start_x = event.x_root - self.window.winfo_x()
+        self.drag_start_y = event.y_root - self.window.winfo_y()
 
     def _drag(self, event: tk.Event) -> None:
-        x = self.window.winfo_x() + event.x - self.drag_start_x
-        y = self.window.winfo_y() + event.y - self.drag_start_y
+        x = event.x_root - self.drag_start_x
+        y = event.y_root - self.drag_start_y
         self.window.geometry(f"+{x}+{y}")
 
 
@@ -214,7 +328,7 @@ class ControlPanel:
         self.root = root
         self.overlay = overlay
         self.visible_var = tk.BooleanVar(value=True)
-        self.text_var = tk.StringVar(value=overlay.text_var.get())
+        self.text_var = tk.StringVar(value=overlay.source_text)
         self.font_var = tk.StringVar(value=overlay.font_family)
         self.size_var = tk.IntVar(value=overlay.font_size)
         self.size_label_var = tk.StringVar(value=f"{overlay.font_size} px")
@@ -225,6 +339,11 @@ class ControlPanel:
         )
         self.highlight_color_var = tk.StringVar(value=overlay.highlight_color)
         self.text_color_var = tk.StringVar(value=overlay.text_color)
+        self.marquee_var = tk.BooleanVar(value=overlay.marquee_enabled)
+        self.speed_var = tk.IntVar(value=overlay.marquee_speed)
+        self.speed_label_var = tk.StringVar(value=f"{overlay.marquee_speed}")
+        self.width_var = tk.IntVar(value=overlay.marquee_width)
+        self.width_label_var = tk.StringVar(value=f"{overlay.marquee_width} px")
 
         self.root.title("螢幕 Highlight 文字控制台")
         self.root.resizable(False, False)
@@ -360,19 +479,63 @@ class ControlPanel:
         )
         row += 1
 
+        # 7. 走馬燈模式
+        ttk.Label(frame, text="7. 走馬燈模式").grid(row=row, column=0, sticky="w")
+        row += 1
+        marquee_row = ttk.Frame(frame)
+        marquee_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 8))
         ttk.Checkbutton(
-            frame,
+            marquee_row,
+            text="啟用走馬燈",
+            variable=self.marquee_var,
+            command=self._toggle_marquee,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(
+            marquee_row,
             text="顯示高亮文字",
             variable=self.visible_var,
             command=self._toggle_visibility,
-        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 8))
+        ).grid(row=0, column=1, sticky="w", padx=(16, 0))
+        row += 1
+
+        ttk.Label(frame, text="走馬燈速度").grid(row=row, column=0, sticky="w")
+        ttk.Label(frame, textvariable=self.speed_label_var).grid(
+            row=row, column=2, sticky="e"
+        )
+        row += 1
+        speed_scale = ttk.Scale(
+            frame,
+            from_=1,
+            to=20,
+            orient="horizontal",
+            variable=self.speed_var,
+            command=self._update_speed,
+        )
+        speed_scale.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        row += 1
+
+        ttk.Label(frame, text="走馬燈寬度").grid(row=row, column=0, sticky="w")
+        ttk.Label(frame, textvariable=self.width_label_var).grid(
+            row=row, column=2, sticky="e"
+        )
+        row += 1
+        width_scale = ttk.Scale(
+            frame,
+            from_=200,
+            to=1600,
+            orient="horizontal",
+            variable=self.width_var,
+            command=self._update_width,
+        )
+        width_scale.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         row += 1
 
         tips = (
             "操作提示：\n"
             "1. 拖曳高亮文字可移動位置。\n"
-            "2. 上方控制項會即時套用到螢幕高亮文字。\n"
-            "3. 按 Esc 或關閉控制台可結束程式。"
+            "2. 啟用走馬燈後，文字會在高亮條內向左捲動。\n"
+            "3. 上方控制項會即時套用到螢幕高亮文字。\n"
+            "4. 按 Esc 或關閉控制台可結束程式。"
         )
         ttk.Label(frame, text=tips, justify="left").grid(
             row=row, column=0, columnspan=3, sticky="w", pady=(8, 0)
@@ -431,6 +594,23 @@ class ControlPanel:
             self.text_color_var.set(color)
             self.text_swatch.configure(bg=color)
 
+    def _toggle_marquee(self) -> None:
+        self.overlay.set_marquee_enabled(self.marquee_var.get())
+
+    def _update_speed(self, _value: str | None = None) -> None:
+        speed = int(round(float(self.speed_var.get())))
+        speed = max(1, min(20, speed))
+        self.speed_var.set(speed)
+        self.speed_label_var.set(str(speed))
+        self.overlay.set_marquee_speed(speed)
+
+    def _update_width(self, _value: str | None = None) -> None:
+        width = int(round(float(self.width_var.get())))
+        width = max(200, min(1600, width))
+        self.width_var.set(width)
+        self.width_label_var.set(f"{width} px")
+        self.overlay.set_marquee_width(width)
+
     def _toggle_visibility(self) -> None:
         self.overlay.toggle_visibility(self.visible_var.get())
 
@@ -475,6 +655,23 @@ def parse_args() -> argparse.Namespace:
         default=0.85,
         help="透明度，範圍 0.2 到 1.0，預設 0.85",
     )
+    parser.add_argument(
+        "--marquee",
+        action="store_true",
+        help="啟動時啟用走馬燈模式",
+    )
+    parser.add_argument(
+        "--marquee-speed",
+        type=int,
+        default=DEFAULT_MARQUEE_SPEED,
+        help="走馬燈速度，範圍 1 到 20，預設 4",
+    )
+    parser.add_argument(
+        "--marquee-width",
+        type=int,
+        default=DEFAULT_MARQUEE_WIDTH,
+        help="走馬燈高亮條寬度，範圍 200 到 2400，預設 720",
+    )
     parser.add_argument("--x", type=int, default=120, help="高亮文字初始 X 座標")
     parser.add_argument("--y", type=int, default=120, help="高亮文字初始 Y 座標")
     return parser.parse_args()
@@ -484,6 +681,8 @@ def main() -> None:
     args = parse_args()
     opacity = max(0.2, min(1.0, args.opacity))
     font_size = max(12, min(120, args.font_size))
+    marquee_speed = max(1, min(20, args.marquee_speed))
+    marquee_width = max(200, min(2400, args.marquee_width))
 
     load_tkinter()
 
@@ -510,6 +709,9 @@ def main() -> None:
         opacity=opacity,
         x=args.x,
         y=args.y,
+        marquee=args.marquee,
+        marquee_speed=marquee_speed,
+        marquee_width=marquee_width,
     )
 
     root.deiconify()
