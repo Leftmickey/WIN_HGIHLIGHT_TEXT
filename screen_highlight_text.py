@@ -15,22 +15,40 @@ from typing import Any
 
 TRANSPARENT_COLOR = "#010203"
 DEFAULT_TEXT = "重點提示文字"
+DEFAULT_FONT = "Microsoft JhengHei UI"
 DEFAULT_HIGHLIGHT = "#fff176"
 DEFAULT_TEXT_COLOR = "#111111"
+
+# Common Windows fonts shown first when available.
+PREFERRED_FONTS = (
+    "Microsoft JhengHei UI",
+    "Microsoft JhengHei",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "Segoe UI",
+    "Arial",
+    "Calibri",
+    "Consolas",
+    "Courier New",
+    "Tahoma",
+    "Verdana",
+)
 
 tk: Any = None
 ttk: Any = None
 colorchooser: Any = None
 messagebox: Any = None
+tkfont: Any = None
 
 
 def load_tkinter() -> None:
     """Load tkinter only when the GUI is actually launched."""
 
-    global colorchooser, messagebox, tk, ttk
+    global colorchooser, messagebox, tk, tkfont, ttk
 
     try:
         import tkinter as tk_module
+        import tkinter.font as tkfont_module
         from tkinter import colorchooser as colorchooser_module
         from tkinter import messagebox as messagebox_module
         from tkinter import ttk as ttk_module
@@ -44,6 +62,38 @@ def load_tkinter() -> None:
     ttk = ttk_module
     colorchooser = colorchooser_module
     messagebox = messagebox_module
+    tkfont = tkfont_module
+
+
+def list_available_fonts(preferred: str | None = None) -> list[str]:
+    """Return system fonts with preferred Chinese/Windows fonts listed first."""
+
+    available = {name for name in tkfont.families() if name.strip()}
+    ordered: list[str] = []
+
+    for name in PREFERRED_FONTS:
+        if name in available and name not in ordered:
+            ordered.append(name)
+
+    if preferred and preferred in available and preferred not in ordered:
+        ordered.insert(0, preferred)
+
+    ordered.extend(sorted(name for name in available if name not in ordered))
+    return ordered
+
+
+def resolve_font_family(requested: str) -> str:
+    """Pick a usable font family, falling back when the requested font is missing."""
+
+    available = list_available_fonts(requested)
+    if requested in available:
+        return requested
+
+    for candidate in PREFERRED_FONTS:
+        if candidate in available:
+            return candidate
+
+    return available[0] if available else requested
 
 
 class HighlightOverlay:
@@ -53,9 +103,11 @@ class HighlightOverlay:
         self,
         root: tk.Tk,
         text: str,
+        font_family: str,
+        font_size: int,
+        bold: bool,
         highlight_color: str,
         text_color: str,
-        font_size: int,
         opacity: float,
         x: int,
         y: int,
@@ -74,7 +126,9 @@ class HighlightOverlay:
             self.window.attributes("-transparentcolor", TRANSPARENT_COLOR)
 
         self.text_var = tk.StringVar(value=text)
+        self.font_family = font_family
         self.font_size = font_size
+        self.bold = bold
         self.opacity = opacity
         self.highlight_color = highlight_color
         self.text_color = text_color
@@ -86,7 +140,7 @@ class HighlightOverlay:
             textvariable=self.text_var,
             bg=self.highlight_color,
             fg=self.text_color,
-            font=("Microsoft JhengHei UI", self.font_size, "bold"),
+            font=self._font_tuple(),
             padx=24,
             pady=12,
             bd=0,
@@ -99,14 +153,30 @@ class HighlightOverlay:
         self.window.geometry(f"+{x}+{y}")
         self.window.bind("<Escape>", lambda _event: self.root.quit())
 
+    def _font_tuple(self) -> tuple[str, int] | tuple[str, int, str]:
+        if self.bold:
+            return (self.font_family, self.font_size, "bold")
+        return (self.font_family, self.font_size)
+
+    def _apply_font(self) -> None:
+        self.label.configure(font=self._font_tuple())
+        self.window.update_idletasks()
+
     def set_text(self, value: str) -> None:
         self.text_var.set(value or " ")
         self.window.update_idletasks()
 
+    def set_font_family(self, value: str) -> None:
+        self.font_family = value
+        self._apply_font()
+
     def set_font_size(self, value: int) -> None:
         self.font_size = value
-        self.label.configure(font=("Microsoft JhengHei UI", self.font_size, "bold"))
-        self.window.update_idletasks()
+        self._apply_font()
+
+    def set_bold(self, value: bool) -> None:
+        self.bold = value
+        self._apply_font()
 
     def set_opacity(self, value: float) -> None:
         self.opacity = value
@@ -138,14 +208,16 @@ class HighlightOverlay:
 
 
 class ControlPanel:
-    """Control panel for changing text, colors, opacity, and size."""
+    """Control panel for changing text, font, colors, opacity, and size."""
 
     def __init__(self, root: tk.Tk, overlay: HighlightOverlay) -> None:
         self.root = root
         self.overlay = overlay
         self.visible_var = tk.BooleanVar(value=True)
         self.text_var = tk.StringVar(value=overlay.text_var.get())
+        self.font_var = tk.StringVar(value=overlay.font_family)
         self.size_var = tk.IntVar(value=overlay.font_size)
+        self.bold_var = tk.BooleanVar(value=overlay.bold)
         self.opacity_var = tk.IntVar(value=round(overlay.opacity * 100))
 
         self.root.title("螢幕 Highlight 文字控制台")
@@ -157,11 +229,29 @@ class ControlPanel:
         frame.grid(row=0, column=0, sticky="nsew")
 
         ttk.Label(frame, text="顯示文字").grid(row=0, column=0, sticky="w")
-        text_entry = ttk.Entry(frame, textvariable=self.text_var, width=34)
+        text_entry = ttk.Entry(frame, textvariable=self.text_var, width=42)
         text_entry.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         text_entry.bind("<KeyRelease>", self._update_text)
 
-        ttk.Label(frame, text="字體大小").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="字型").grid(row=2, column=0, sticky="w")
+        font_combo = ttk.Combobox(
+            frame,
+            textvariable=self.font_var,
+            values=list_available_fonts(overlay.font_family),
+            width=28,
+            state="readonly",
+        )
+        font_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 12))
+        font_combo.bind("<<ComboboxSelected>>", self._update_font)
+
+        ttk.Checkbutton(
+            frame,
+            text="粗體",
+            variable=self.bold_var,
+            command=self._update_bold,
+        ).grid(row=3, column=2, sticky="w", padx=(8, 0), pady=(4, 12))
+
+        ttk.Label(frame, text="字體大小").grid(row=4, column=0, sticky="w")
         size_spinbox = ttk.Spinbox(
             frame,
             from_=12,
@@ -170,10 +260,10 @@ class ControlPanel:
             width=8,
             command=self._update_size,
         )
-        size_spinbox.grid(row=3, column=0, sticky="w", pady=(4, 12))
+        size_spinbox.grid(row=5, column=0, sticky="w", pady=(4, 12))
         size_spinbox.bind("<KeyRelease>", self._update_size)
 
-        ttk.Label(frame, text="透明度").grid(row=2, column=1, sticky="w")
+        ttk.Label(frame, text="透明度").grid(row=4, column=1, sticky="w")
         opacity_scale = ttk.Scale(
             frame,
             from_=20,
@@ -181,35 +271,44 @@ class ControlPanel:
             orient="horizontal",
             variable=self.opacity_var,
             command=self._update_opacity,
-            length=130,
+            length=150,
         )
-        opacity_scale.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(4, 12))
+        opacity_scale.grid(row=5, column=1, columnspan=2, sticky="ew", pady=(4, 12))
 
         ttk.Button(frame, text="選擇高亮色", command=self._choose_highlight).grid(
-            row=4, column=0, sticky="ew", padx=(0, 8)
+            row=6, column=0, sticky="ew", padx=(0, 8)
         )
         ttk.Button(frame, text="選擇文字色", command=self._choose_text).grid(
-            row=4, column=1, sticky="ew", padx=(0, 8)
+            row=6, column=1, sticky="ew", padx=(0, 8)
         )
         ttk.Checkbutton(
             frame,
             text="顯示高亮文字",
             variable=self.visible_var,
             command=self._toggle_visibility,
-        ).grid(row=4, column=2, sticky="w")
+        ).grid(row=6, column=2, sticky="w")
 
         tips = (
             "操作提示：\n"
             "1. 拖曳高亮文字可移動位置。\n"
-            "2. 按 Esc 或關閉控制台可結束程式。\n"
-            "3. 若在簡報或會議中使用，請先測試是否會被分享軟體擷取。"
+            "2. 可用下拉選單切換系統字型，並開關粗體。\n"
+            "3. 按 Esc 或關閉控制台可結束程式。\n"
+            "4. 若在簡報或會議中使用，請先測試是否會被分享軟體擷取。"
         )
         ttk.Label(frame, text=tips, justify="left").grid(
-            row=5, column=0, columnspan=3, sticky="w", pady=(14, 0)
+            row=7, column=0, columnspan=3, sticky="w", pady=(14, 0)
         )
 
     def _update_text(self, _event: tk.Event | None = None) -> None:
         self.overlay.set_text(self.text_var.get())
+
+    def _update_font(self, _event: tk.Event | None = None) -> None:
+        font_name = self.font_var.get().strip()
+        if font_name:
+            self.overlay.set_font_family(font_name)
+
+    def _update_bold(self) -> None:
+        self.overlay.set_bold(self.bold_var.get())
 
     def _update_size(self, _event: tk.Event | None = None) -> None:
         try:
@@ -248,7 +347,25 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--text", default=DEFAULT_TEXT, help="啟動時顯示的文字")
     parser.add_argument(
+        "--font",
+        default=DEFAULT_FONT,
+        help=f"啟動時的字型名稱，預設 {DEFAULT_FONT}",
+    )
+    parser.add_argument(
         "--font-size", type=int, default=40, help="啟動時的文字大小，預設 40"
+    )
+    parser.add_argument(
+        "--bold",
+        dest="bold",
+        action="store_true",
+        default=True,
+        help="使用粗體（預設開啟）",
+    )
+    parser.add_argument(
+        "--no-bold",
+        dest="bold",
+        action="store_false",
+        help="關閉粗體",
     )
     parser.add_argument(
         "--highlight-color",
@@ -286,12 +403,16 @@ def main() -> None:
             "但透明背景效果可能不同。",
         )
 
+    font_family = resolve_font_family(args.font)
+
     overlay = HighlightOverlay(
         root=root,
         text=args.text,
+        font_family=font_family,
+        font_size=font_size,
+        bold=args.bold,
         highlight_color=args.highlight_color,
         text_color=args.text_color,
-        font_size=font_size,
         opacity=opacity,
         x=args.x,
         y=args.y,
