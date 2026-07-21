@@ -208,7 +208,7 @@ class HighlightOverlay:
 
 
 class ControlPanel:
-    """Control panel for changing text, font, colors, opacity, and size."""
+    """Control panel for editing highlight text appearance."""
 
     def __init__(self, root: tk.Tk, overlay: HighlightOverlay) -> None:
         self.root = root
@@ -217,8 +217,14 @@ class ControlPanel:
         self.text_var = tk.StringVar(value=overlay.text_var.get())
         self.font_var = tk.StringVar(value=overlay.font_family)
         self.size_var = tk.IntVar(value=overlay.font_size)
+        self.size_label_var = tk.StringVar(value=f"{overlay.font_size} px")
         self.bold_var = tk.BooleanVar(value=overlay.bold)
         self.opacity_var = tk.IntVar(value=round(overlay.opacity * 100))
+        self.opacity_label_var = tk.StringVar(
+            value=f"{round(overlay.opacity * 100)}%"
+        )
+        self.highlight_color_var = tk.StringVar(value=overlay.highlight_color)
+        self.text_color_var = tk.StringVar(value=overlay.text_color)
 
         self.root.title("螢幕 Highlight 文字控制台")
         self.root.resizable(False, False)
@@ -227,43 +233,78 @@ class ControlPanel:
 
         frame = ttk.Frame(self.root, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="顯示文字").grid(row=0, column=0, sticky="w")
-        text_entry = ttk.Entry(frame, textvariable=self.text_var, width=42)
-        text_entry.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        row = 0
+
+        # 1. 修改文字
+        ttk.Label(frame, text="1. 修改文字").grid(row=row, column=0, sticky="w")
+        row += 1
+        text_entry = ttk.Entry(frame, textvariable=self.text_var, width=44)
+        text_entry.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
         text_entry.bind("<KeyRelease>", self._update_text)
+        row += 1
 
-        ttk.Label(frame, text="字型").grid(row=2, column=0, sticky="w")
+        # 2. 選字型
+        ttk.Label(frame, text="2. 選字型").grid(row=row, column=0, sticky="w")
+        row += 1
+        font_row = ttk.Frame(frame)
+        font_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        font_row.columnconfigure(0, weight=1)
         font_combo = ttk.Combobox(
-            frame,
+            font_row,
             textvariable=self.font_var,
             values=list_available_fonts(overlay.font_family),
-            width=28,
+            width=34,
             state="readonly",
         )
-        font_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 12))
+        font_combo.grid(row=0, column=0, sticky="ew")
         font_combo.bind("<<ComboboxSelected>>", self._update_font)
-
         ttk.Checkbutton(
-            frame,
+            font_row,
             text="粗體",
             variable=self.bold_var,
             command=self._update_bold,
-        ).grid(row=3, column=2, sticky="w", padx=(8, 0), pady=(4, 12))
+        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        row += 1
 
-        ttk.Label(frame, text="字體大小").grid(row=4, column=0, sticky="w")
+        # 3. 調整字體大小
+        ttk.Label(frame, text="3. 調整字體大小").grid(row=row, column=0, sticky="w")
+        ttk.Label(frame, textvariable=self.size_label_var).grid(
+            row=row, column=2, sticky="e"
+        )
+        row += 1
+        size_row = ttk.Frame(frame)
+        size_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        size_row.columnconfigure(0, weight=1)
+        size_scale = ttk.Scale(
+            size_row,
+            from_=12,
+            to=120,
+            orient="horizontal",
+            variable=self.size_var,
+            command=self._update_size_from_scale,
+        )
+        size_scale.grid(row=0, column=0, sticky="ew")
         size_spinbox = ttk.Spinbox(
-            frame,
+            size_row,
             from_=12,
             to=120,
             textvariable=self.size_var,
-            width=8,
+            width=6,
             command=self._update_size,
         )
-        size_spinbox.grid(row=5, column=0, sticky="w", pady=(4, 12))
+        size_spinbox.grid(row=0, column=1, sticky="e", padx=(10, 0))
         size_spinbox.bind("<KeyRelease>", self._update_size)
+        size_spinbox.bind("<FocusOut>", self._update_size)
+        row += 1
 
-        ttk.Label(frame, text="透明度").grid(row=4, column=1, sticky="w")
+        # 4. 調整透明度
+        ttk.Label(frame, text="4. 調整透明度").grid(row=row, column=0, sticky="w")
+        ttk.Label(frame, textvariable=self.opacity_label_var).grid(
+            row=row, column=2, sticky="e"
+        )
+        row += 1
         opacity_scale = ttk.Scale(
             frame,
             from_=20,
@@ -271,32 +312,70 @@ class ControlPanel:
             orient="horizontal",
             variable=self.opacity_var,
             command=self._update_opacity,
-            length=150,
         )
-        opacity_scale.grid(row=5, column=1, columnspan=2, sticky="ew", pady=(4, 12))
+        opacity_scale.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        row += 1
 
-        ttk.Button(frame, text="選擇高亮色", command=self._choose_highlight).grid(
-            row=6, column=0, sticky="ew", padx=(0, 8)
+        # 5. 更換高亮底色
+        ttk.Label(frame, text="5. 更換高亮底色").grid(row=row, column=0, sticky="w")
+        row += 1
+        highlight_row = ttk.Frame(frame)
+        highlight_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        ttk.Button(
+            highlight_row, text="選擇高亮底色", command=self._choose_highlight
+        ).grid(row=0, column=0, sticky="w")
+        self.highlight_swatch = tk.Label(
+            highlight_row,
+            text="  ",
+            width=4,
+            relief="solid",
+            bd=1,
+            bg=overlay.highlight_color,
         )
-        ttk.Button(frame, text="選擇文字色", command=self._choose_text).grid(
-            row=6, column=1, sticky="ew", padx=(0, 8)
+        self.highlight_swatch.grid(row=0, column=1, sticky="w", padx=(10, 6))
+        ttk.Label(highlight_row, textvariable=self.highlight_color_var).grid(
+            row=0, column=2, sticky="w"
         )
+        row += 1
+
+        # 6. 更換文字顏色
+        ttk.Label(frame, text="6. 更換文字顏色").grid(row=row, column=0, sticky="w")
+        row += 1
+        text_color_row = ttk.Frame(frame)
+        text_color_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
+        ttk.Button(
+            text_color_row, text="選擇文字顏色", command=self._choose_text
+        ).grid(row=0, column=0, sticky="w")
+        self.text_swatch = tk.Label(
+            text_color_row,
+            text="  ",
+            width=4,
+            relief="solid",
+            bd=1,
+            bg=overlay.text_color,
+        )
+        self.text_swatch.grid(row=0, column=1, sticky="w", padx=(10, 6))
+        ttk.Label(text_color_row, textvariable=self.text_color_var).grid(
+            row=0, column=2, sticky="w"
+        )
+        row += 1
+
         ttk.Checkbutton(
             frame,
             text="顯示高亮文字",
             variable=self.visible_var,
             command=self._toggle_visibility,
-        ).grid(row=6, column=2, sticky="w")
+        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 8))
+        row += 1
 
         tips = (
             "操作提示：\n"
             "1. 拖曳高亮文字可移動位置。\n"
-            "2. 可用下拉選單切換系統字型，並開關粗體。\n"
-            "3. 按 Esc 或關閉控制台可結束程式。\n"
-            "4. 若在簡報或會議中使用，請先測試是否會被分享軟體擷取。"
+            "2. 上方控制項會即時套用到螢幕高亮文字。\n"
+            "3. 按 Esc 或關閉控制台可結束程式。"
         )
         ttk.Label(frame, text=tips, justify="left").grid(
-            row=7, column=0, columnspan=3, sticky="w", pady=(14, 0)
+            row=row, column=0, columnspan=3, sticky="w", pady=(8, 0)
         )
 
     def _update_text(self, _event: tk.Event | None = None) -> None:
@@ -310,25 +389,38 @@ class ControlPanel:
     def _update_bold(self) -> None:
         self.overlay.set_bold(self.bold_var.get())
 
+    def _update_size_from_scale(self, _value: str | None = None) -> None:
+        size = int(round(float(self.size_var.get())))
+        self.size_var.set(size)
+        self._apply_size(size)
+
     def _update_size(self, _event: tk.Event | None = None) -> None:
         try:
             size = int(self.size_var.get())
-        except tk.TclError:
+        except (tk.TclError, ValueError, TypeError):
             return
+        self._apply_size(size)
 
+    def _apply_size(self, size: int) -> None:
         if 12 <= size <= 120:
+            self.size_label_var.set(f"{size} px")
             self.overlay.set_font_size(size)
 
     def _update_opacity(self, _value: str | None = None) -> None:
-        opacity = max(20, min(100, self.opacity_var.get())) / 100
-        self.overlay.set_opacity(opacity)
+        opacity_percent = int(round(float(self.opacity_var.get())))
+        opacity_percent = max(20, min(100, opacity_percent))
+        self.opacity_var.set(opacity_percent)
+        self.opacity_label_var.set(f"{opacity_percent}%")
+        self.overlay.set_opacity(opacity_percent / 100)
 
     def _choose_highlight(self) -> None:
         color = colorchooser.askcolor(
-            title="選擇高亮顏色", initialcolor=self.overlay.highlight_color
+            title="選擇高亮底色", initialcolor=self.overlay.highlight_color
         )[1]
         if color:
             self.overlay.set_highlight_color(color)
+            self.highlight_color_var.set(color)
+            self.highlight_swatch.configure(bg=color)
 
     def _choose_text(self) -> None:
         color = colorchooser.askcolor(
@@ -336,6 +428,8 @@ class ControlPanel:
         )[1]
         if color:
             self.overlay.set_text_color(color)
+            self.text_color_var.set(color)
+            self.text_swatch.configure(bg=color)
 
     def _toggle_visibility(self) -> None:
         self.overlay.toggle_visibility(self.visible_var.get())
