@@ -6,7 +6,8 @@
 
 - 顯示可拖曳的螢幕高亮文字
 - 視窗保持置頂
-- 可即時修改顯示文字
+- 可即時修改顯示文字，支援多行
+- 可從外部 `.txt` 檔載入文字
 - 可從系統字型清單切換字型
 - 可開關粗體，並調整字體大小與透明度
 - 可選擇高亮底色與文字顏色
@@ -31,7 +32,7 @@ python screen_highlight_text.py
 
 啟動後會開啟控制台，包含這些功能：
 
-1. 修改文字
+1. 修改文字（可多行，也可載入 TXT）
 2. 選字型（可開關粗體）
 3. 調整字體大小
 4. 調整透明度
@@ -41,11 +42,27 @@ python screen_highlight_text.py
 
 操作步驟：
 
-1. 在控制台輸入要顯示的文字。
+1. 在控制台多行文字框輸入內容，或按「載入 TXT」/ `Ctrl+O`。
 2. 拖曳螢幕上的高亮文字到需要的位置。
 3. 使用控制台即時調整字型、大小、透明度與顏色。
 4. 勾選「啟用走馬燈」讓文字在高亮條內向左捲動。
 5. 按 `Esc` 或關閉控制台結束程式。
+
+## 讀取外部 TXT
+
+可直接用命令列載入文字檔：
+
+```powershell
+python screen_highlight_text.py --file examples\sample.txt
+```
+
+也支援走馬燈：
+
+```powershell
+python screen_highlight_text.py --file examples\sample.txt --marquee --marquee-speed 6
+```
+
+文字檔支援常見編碼：`UTF-8`、`UTF-8 BOM`、`Big5/CP950`。
 
 ## 啟動參數
 
@@ -60,6 +77,7 @@ python screen_highlight_text.py --text "重要提醒：請注意螢幕高亮內�
 | 參數 | 說明 | 預設值 |
 | --- | --- | --- |
 | `--text` | 啟動時顯示的文字 | `重點提示文字` |
+| `--file` | 從外部 `.txt` 讀取文字（優先於 `--text`） | 無 |
 | `--font` | 啟動時的字型名稱 | `Microsoft JhengHei UI` |
 | `--font-size` | 字體大小，範圍 12 到 120 | `40` |
 | `--bold` / `--no-bold` | 開啟或關閉粗體 | 預設粗體開啟 |

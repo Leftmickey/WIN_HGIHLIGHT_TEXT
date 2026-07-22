@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import platform
 import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -21,6 +22,7 @@ DEFAULT_TEXT_COLOR = "#111111"
 DEFAULT_MARQUEE_WIDTH = 720
 DEFAULT_MARQUEE_SPEED = 4
 MARQUEE_TICK_MS = 30
+TEXT_FILE_ENCODINGS = ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030")
 
 # Common Windows fonts shown first when available.
 PREFERRED_FONTS = (
@@ -40,20 +42,24 @@ PREFERRED_FONTS = (
 tk: Any = None
 ttk: Any = None
 colorchooser: Any = None
+filedialog: Any = None
 messagebox: Any = None
+scrolledtext: Any = None
 tkfont: Any = None
 
 
 def load_tkinter() -> None:
     """Load tkinter only when the GUI is actually launched."""
 
-    global colorchooser, messagebox, tk, tkfont, ttk
+    global colorchooser, filedialog, messagebox, scrolledtext, tk, tkfont, ttk
 
     try:
         import tkinter as tk_module
         import tkinter.font as tkfont_module
         from tkinter import colorchooser as colorchooser_module
+        from tkinter import filedialog as filedialog_module
         from tkinter import messagebox as messagebox_module
+        from tkinter import scrolledtext as scrolledtext_module
         from tkinter import ttk as ttk_module
     except ImportError as exc:
         raise RuntimeError(
@@ -64,8 +70,33 @@ def load_tkinter() -> None:
     tk = tk_module
     ttk = ttk_module
     colorchooser = colorchooser_module
+    filedialog = filedialog_module
     messagebox = messagebox_module
+    scrolledtext = scrolledtext_module
     tkfont = tkfont_module
+
+
+def normalize_display_text(value: str) -> str:
+    """Normalize newlines and keep blank placeholder text usable."""
+
+    text = value.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    return text if text.strip() else " "
+
+
+def read_text_file(path: str | Path) -> str:
+    """Read a text file with common Windows/Chinese encodings."""
+
+    data = Path(path).read_bytes()
+    for encoding in TEXT_FILE_ENCODINGS:
+        try:
+            text = data.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        text = data.decode("utf-8", errors="replace")
+
+    return normalize_display_text(text)
 
 
 def list_available_fonts(preferred: str | None = None) -> list[str]:
@@ -133,7 +164,7 @@ class HighlightOverlay:
         else:
             self.window.configure(bg=highlight_color)
 
-        self.source_text = text or " "
+        self.source_text = normalize_display_text(text)
         self.font_family = font_family
         self.font_size = font_size
         self.bold = bold
@@ -159,6 +190,8 @@ class HighlightOverlay:
             bg=self.highlight_color,
             fg=self.text_color,
             font=self._font_tuple(),
+            justify="left",
+            anchor="w",
             padx=24,
             pady=12,
             bd=0,
@@ -189,9 +222,11 @@ class HighlightOverlay:
 
     def _measure_text(self) -> tuple[int, int]:
         font = tkfont.Font(font=self._font_tuple())
-        width = max(font.measure(self.source_text), 1)
-        height = max(font.metrics("linespace"), self.font_size) + 24
-        return width, height
+        lines = self.source_text.split("\n") or [" "]
+        width = max((font.measure(line) for line in lines), default=1)
+        line_height = max(font.metrics("linespace"), self.font_size)
+        height = line_height * max(len(lines), 1) + 24
+        return max(width, 1), height
 
     def _stop_marquee(self) -> None:
         if self._marquee_job is not None:
@@ -227,6 +262,7 @@ class HighlightOverlay:
                 content_height / 2,
                 text=self.source_text,
                 anchor="w",
+                justify="left",
                 fill=self.text_color,
                 font=self._font_tuple(),
             )
@@ -238,6 +274,8 @@ class HighlightOverlay:
                 bg=self.highlight_color,
                 fg=self.text_color,
                 font=self._font_tuple(),
+                justify="left",
+                anchor="w",
             )
             self.label.pack()
 
@@ -256,7 +294,7 @@ class HighlightOverlay:
         self._marquee_job = self.window.after(MARQUEE_TICK_MS, self._tick_marquee)
 
     def set_text(self, value: str) -> None:
-        self.source_text = value or " "
+        self.source_text = normalize_display_text(value)
         self._rebuild_view(reset_position=False)
 
     def set_font_family(self, value: str) -> None:
@@ -328,7 +366,6 @@ class ControlPanel:
         self.root = root
         self.overlay = overlay
         self.visible_var = tk.BooleanVar(value=True)
-        self.text_var = tk.StringVar(value=overlay.source_text)
         self.font_var = tk.StringVar(value=overlay.font_family)
         self.size_var = tk.IntVar(value=overlay.font_size)
         self.size_label_var = tk.StringVar(value=f"{overlay.font_size} px")
@@ -344,11 +381,15 @@ class ControlPanel:
         self.speed_label_var = tk.StringVar(value=f"{overlay.marquee_speed}")
         self.width_var = tk.IntVar(value=overlay.marquee_width)
         self.width_label_var = tk.StringVar(value=f"{overlay.marquee_width} px")
+        self.file_path_var = tk.StringVar(value="")
+        self._text_update_job: str | None = None
 
         self.root.title("螢幕 Highlight 文字控制台")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.root.quit)
         self.root.bind("<Escape>", lambda _event: self.root.quit())
+        self.root.bind("<Control-o>", self._load_text_file)
+        self.root.bind("<Control-O>", self._load_text_file)
 
         frame = ttk.Frame(self.root, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
@@ -356,12 +397,31 @@ class ControlPanel:
 
         row = 0
 
-        # 1. 修改文字
-        ttk.Label(frame, text="1. 修改文字").grid(row=row, column=0, sticky="w")
+        # 1. 修改文字（可多行 / 讀取 TXT）
+        header = ttk.Frame(frame)
+        header.grid(row=row, column=0, columnspan=3, sticky="ew")
+        ttk.Label(header, text="1. 修改文字（可多行）").grid(row=0, column=0, sticky="w")
+        ttk.Button(header, text="載入 TXT", command=self._load_text_file).grid(
+            row=0, column=1, sticky="e", padx=(12, 0)
+        )
+        header.columnconfigure(0, weight=1)
         row += 1
-        text_entry = ttk.Entry(frame, textvariable=self.text_var, width=44)
-        text_entry.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 12))
-        text_entry.bind("<KeyRelease>", self._update_text)
+
+        self.text_box = scrolledtext.ScrolledText(
+            frame,
+            width=46,
+            height=6,
+            wrap="word",
+            font=("Microsoft JhengHei UI", 11),
+        )
+        self.text_box.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(4, 4))
+        self.text_box.insert("1.0", overlay.source_text)
+        self.text_box.bind("<KeyRelease>", self._schedule_text_update)
+        row += 1
+
+        ttk.Label(frame, textvariable=self.file_path_var, foreground="#555555").grid(
+            row=row, column=0, columnspan=3, sticky="w", pady=(0, 12)
+        )
         row += 1
 
         # 2. 選字型
@@ -532,17 +592,50 @@ class ControlPanel:
 
         tips = (
             "操作提示：\n"
-            "1. 拖曳高亮文字可移動位置。\n"
-            "2. 啟用走馬燈後，文字會在高亮條內向左捲動。\n"
-            "3. 上方控制項會即時套用到螢幕高亮文字。\n"
+            "1. 文字框可輸入多行；也可按「載入 TXT」或 Ctrl+O。\n"
+            "2. 拖曳高亮文字可移動位置。\n"
+            "3. 啟用走馬燈後，多行文字會整塊向左捲動。\n"
             "4. 按 Esc 或關閉控制台可結束程式。"
         )
         ttk.Label(frame, text=tips, justify="left").grid(
             row=row, column=0, columnspan=3, sticky="w", pady=(8, 0)
         )
 
+    def _schedule_text_update(self, _event: tk.Event | None = None) -> None:
+        if self._text_update_job is not None:
+            try:
+                self.root.after_cancel(self._text_update_job)
+            except tk.TclError:
+                pass
+        self._text_update_job = self.root.after(120, self._update_text)
+
     def _update_text(self, _event: tk.Event | None = None) -> None:
-        self.overlay.set_text(self.text_var.get())
+        self._text_update_job = None
+        text = self.text_box.get("1.0", "end-1c")
+        self.overlay.set_text(text)
+
+    def _load_text_file(self, _event: tk.Event | None = None) -> str | None:
+        path = filedialog.askopenfilename(
+            title="選擇文字檔",
+            filetypes=[
+                ("文字檔", "*.txt"),
+                ("所有檔案", "*.*"),
+            ],
+        )
+        if not path:
+            return "break"
+
+        try:
+            content = read_text_file(path)
+        except OSError as exc:
+            messagebox.showerror("讀取失敗", f"無法讀取檔案：\n{path}\n\n{exc}")
+            return "break"
+
+        self.text_box.delete("1.0", "end")
+        self.text_box.insert("1.0", content)
+        self.file_path_var.set(f"已載入：{path}")
+        self.overlay.set_text(content)
+        return "break"
 
     def _update_font(self, _event: tk.Event | None = None) -> None:
         font_name = self.font_var.get().strip()
@@ -621,6 +714,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--text", default=DEFAULT_TEXT, help="啟動時顯示的文字")
     parser.add_argument(
+        "--file",
+        dest="text_file",
+        help="從外部 .txt 檔讀取顯示文字（優先於 --text）",
+    )
+    parser.add_argument(
         "--font",
         default=DEFAULT_FONT,
         help=f"啟動時的字型名稱，預設 {DEFAULT_FONT}",
@@ -684,6 +782,14 @@ def main() -> None:
     marquee_speed = max(1, min(20, args.marquee_speed))
     marquee_width = max(200, min(2400, args.marquee_width))
 
+    if args.text_file:
+        try:
+            startup_text = read_text_file(args.text_file)
+        except OSError as exc:
+            raise RuntimeError(f"無法讀取文字檔：{args.text_file}\n{exc}") from exc
+    else:
+        startup_text = normalize_display_text(args.text)
+
     load_tkinter()
 
     root = tk.Tk()
@@ -700,7 +806,7 @@ def main() -> None:
 
     overlay = HighlightOverlay(
         root=root,
-        text=args.text,
+        text=startup_text,
         font_family=font_family,
         font_size=font_size,
         bold=args.bold,
@@ -715,7 +821,9 @@ def main() -> None:
     )
 
     root.deiconify()
-    ControlPanel(root, overlay)
+    panel = ControlPanel(root, overlay)
+    if args.text_file:
+        panel.file_path_var.set(f"已載入：{args.text_file}")
     root.mainloop()
 
 
