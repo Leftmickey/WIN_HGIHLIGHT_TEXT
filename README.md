@@ -10,8 +10,8 @@
 - 可從外部 `.txt` 檔載入文字
 - 可從系統字型清單切換字型
 - 可開關粗體，並調整字體大小與透明度
-- 可選擇高亮底色與文字顏色
-- 可啟用走馬燈模式，並調整速度與寬度
+- 可選擇高亮底色與文字顏色，並可開啟自動變色
+- 可啟用走馬燈模式，調整方向、速度與寬度（0~4096）
 - 按 `Esc` 或關閉控制台即可結束
 - 不需要安裝第三方套件，使用 Python 標準庫 `tkinter`
 
@@ -36,17 +36,18 @@ python screen_highlight_text.py
 2. 選字型（可開關粗體）
 3. 調整字體大小
 4. 調整透明度
-5. 更換高亮底色
-6. 更換文字顏色
-7. 走馬燈模式（可調速度與寬度）
+5. 更換高亮底色（可自動變色）
+6. 更換文字顏色（可自動變色）
+7. 走馬燈模式（可調方向、速度與寬度）
 
 操作步驟：
 
 1. 在控制台多行文字框輸入內容，或按「載入 TXT」/ `Ctrl+O`。
 2. 拖曳螢幕上的高亮文字到需要的位置。
 3. 使用控制台即時調整字型、大小、透明度與顏色。
-4. 勾選「啟用走馬燈」讓文字在高亮條內向左捲動。
-5. 按 `Esc` 或關閉控制台結束程式。
+4. 勾選底色／文字「自動變色」可讓顏色持續變化。
+5. 勾選「啟用走馬燈」，並選擇向左或向右捲動。
+6. 按 `Esc` 或關閉控制台結束程式。
 
 ## 讀取外部 TXT
 
@@ -56,10 +57,10 @@ python screen_highlight_text.py
 python screen_highlight_text.py --file examples\sample.txt
 ```
 
-也支援走馬燈：
+也支援走馬燈與變色：
 
 ```powershell
-python screen_highlight_text.py --file examples\sample.txt --marquee --marquee-speed 6
+python screen_highlight_text.py --file examples\sample.txt --marquee --marquee-direction right --marquee-width 1200 --highlight-cycle --text-cycle
 ```
 
 文字檔支援常見編碼：`UTF-8`、`UTF-8 BOM`、`Big5/CP950`。
@@ -69,7 +70,7 @@ python screen_highlight_text.py --file examples\sample.txt --marquee --marquee-s
 也可以在啟動時指定文字、字型、大小、顏色、透明度、走馬燈與位置：
 
 ```powershell
-python screen_highlight_text.py --text "重要提醒：請注意螢幕高亮內容" --font "Microsoft JhengHei UI" --font-size 48 --marquee --marquee-speed 6 --marquee-width 900
+python screen_highlight_text.py --text "重要提醒：請注意螢幕高亮內容" --font "Microsoft JhengHei UI" --font-size 48 --marquee --marquee-direction left --marquee-speed 6 --marquee-width 900
 ```
 
 可用參數：
@@ -83,10 +84,14 @@ python screen_highlight_text.py --text "重要提醒：請注意螢幕高亮內�
 | `--bold` / `--no-bold` | 開啟或關閉粗體 | 預設粗體開啟 |
 | `--highlight-color` | 高亮底色，例如 `#fff176` | `#fff176` |
 | `--text-color` | 文字顏色，例如 `#111111` | `#111111` |
+| `--highlight-cycle` | 高亮底色自動變色 | 關閉 |
+| `--text-cycle` | 文字顏色自動變色 | 關閉 |
+| `--color-cycle-speed` | 變色速度，範圍 1 到 20 | `3` |
 | `--opacity` | 透明度，範圍 0.2 到 1.0 | `0.85` |
 | `--marquee` | 啟動時啟用走馬燈模式 | 關閉 |
+| `--marquee-direction` | 走馬燈方向：`left` 或 `right` | `left` |
 | `--marquee-speed` | 走馬燈速度，範圍 1 到 20 | `4` |
-| `--marquee-width` | 走馬燈高亮條寬度，範圍 200 到 2400 | `720` |
+| `--marquee-width` | 走馬燈高亮條寬度，範圍 0 到 4096，`0`=自動 | `720` |
 | `--x` | 初始 X 座標 | `120` |
 | `--y` | 初始 Y 座標 | `120` |
 
