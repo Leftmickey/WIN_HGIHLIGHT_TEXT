@@ -553,7 +553,9 @@ class ControlPanel:
         self.speed_var = tk.IntVar(value=overlay.marquee_speed)
         self.speed_label_var = tk.StringVar(value=f"{overlay.marquee_speed}")
         self.width_var = tk.IntVar(value=overlay.marquee_width)
-        self.width_label_var = tk.StringVar(self._format_width(overlay.marquee_width))
+        self.width_label_var = tk.StringVar(
+            value=self._format_width(overlay.marquee_width)
+        )
         self.file_path_var = tk.StringVar(value="")
         self._text_update_job: str | None = None
 
